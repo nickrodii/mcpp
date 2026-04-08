@@ -1,0 +1,21 @@
+This is chat
+
+/summon command_block { 
+    /function greet {name}
+    /say "Hello"
+    /say name
+    /execute store result 1
+}
+
+/summon command_block {
+    /function add {a, b}
+    /give sum a + b
+    /execute store result sum
+}
+
+/execute store result result run /function add {a: 7, b: 5}
+/say result
+
+/function greet {name: "Steve"}
+
+/stop

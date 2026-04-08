@@ -1,0 +1,46 @@
+/say "mcpp calculator"
+/say "Enter the first integer:"
+/msg first
+
+/say "Enter the second integer (non-zero if you want division):"
+/msg second
+
+/give left first - 0
+/give right second - 0
+
+/summon command_block {
+    /function add {a, b}
+    /give result a + b
+    /execute store result result
+}
+
+/summon command_block {
+    /function subtract {a, b}
+    /give result a - b
+    /execute store result result
+}
+
+/summon command_block {
+    /function multiply {a, b}
+    /give result a * b
+    /execute store result result
+}
+
+/summon command_block {
+    /function divide {a, b}
+    /give result a / b
+    /execute store result result
+}
+
+/execute store result sum run /function add {a: left, b: right}
+/execute store result difference run /function subtract {a: left, b: right}
+/execute store result product run /function multiply {a: left, b: right}
+/execute store result quotient run /function divide {a: left, b: right}
+
+/say "Results:"
+/say left + " + " + right + " = " + sum
+/say left + " - " + right + " = " + difference
+/say left + " * " + right + " = " + product
+/say left + " / " + right + " = " + quotient
+
+/stop

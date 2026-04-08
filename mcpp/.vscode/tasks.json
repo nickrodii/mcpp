@@ -1,0 +1,60 @@
+{
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "Build mcpp (MSBuild x64 Debug)",
+            "command": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Current\\Bin\\amd64\\MSBuild.exe",
+            "args": [
+                "mcpp.vcxproj",
+                "/p:Configuration=Debug",
+                "/p:Platform=x64"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Builds the Visual Studio project with the same settings used by the IDE."
+        },
+        {
+            "type": "shell",
+            "label": "Build mcpp (MSBuild x64 Release)",
+            "command": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Current\\Bin\\amd64\\MSBuild.exe",
+            "args": [
+                "mcpp.vcxproj",
+                "/p:Configuration=Release",
+                "/p:Platform=x64"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "detail": "Builds the release executable for distribution."
+        },
+        {
+            "type": "shell",
+            "label": "C/C++: cl.exe build active file",
+            "command": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Current\\Bin\\amd64\\MSBuild.exe",
+            "args": [
+                "mcpp.vcxproj",
+                "/p:Configuration=Debug",
+                "/p:Platform=x64"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "detail": "Compatibility task that builds the full Visual Studio project instead of compiling the active file."
+        }
+    ],
+    "version": "2.0.0"
+}
