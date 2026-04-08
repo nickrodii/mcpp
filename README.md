@@ -5,8 +5,8 @@ It supports script execution, an interactive REPL, scoped command blocks, named-
 
 ## Running MC++
 
-- Download the latest build from https://github.com/nickrodii/mcpp/releases
-- To start the REPL, simply run the program or call it with `mcpp`.
+- Download the latest build from [the releases page](https://github.com/nickrodii/mcpp/releases)
+- To start the REPL, simply run the program or call it with `mcpp`
 - To run a mcpp file, use `mcpp <file.mcpp>`
 - To show help, run `mcpp --help` or `mcpp -h`
 - To show version, run `mcpp --version` or `mcpp -v`
