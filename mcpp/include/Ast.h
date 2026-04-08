@@ -51,7 +51,13 @@ enum class BinaryOp {
     Add,
     Subtract,
     Multiply,
-    Divide
+    Divide,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual
 };
 
 struct BinaryExpr {
@@ -95,6 +101,18 @@ struct StoreResultStatement {
     StatementPtr command;
 };
 
+enum class ExecuteConditionMode {
+    If,
+    Unless,
+    Until
+};
+
+struct ExecuteConditionStatement {
+    ExecuteConditionMode mode = ExecuteConditionMode::If;
+    ExprPtr condition;
+    StatementPtr command;
+};
+
 struct ReturnStatement {
     ExprPtr expression;
 };
@@ -113,15 +131,22 @@ struct MsgStatement {
     std::string variableName;
 };
 
+struct GameruleStatement {
+    std::string name;
+    bool value = false;
+};
+
 using StatementNode = std::variant<
     BlockStatement,
     StopStatement,
     SayStatement,
     GiveStatement,
     StoreResultStatement,
+    ExecuteConditionStatement,
     ReturnStatement,
     FunctionCallStatement,
-    MsgStatement
+    MsgStatement,
+    GameruleStatement
 >;
 
 struct Statement {

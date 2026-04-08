@@ -18,6 +18,12 @@ enum class TokenKind {
     Plus,
     Minus,
     Star,
+    EqualEqual,
+    BangEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
     Identifier,
     Integer,
     String

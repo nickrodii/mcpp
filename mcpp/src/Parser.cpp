@@ -7,6 +7,24 @@ namespace {
     bool containsName(const std::vector<std::string>& names, const std::string& value) {
         return std::find(names.begin(), names.end(), value) != names.end();
     }
+
+    std::string prefixNestedParseError(const std::string& nestedError, const std::string& prefixMessage) {
+        const std::string parsePrefix = "Parse error at ";
+        const std::string separator = ": ";
+
+        if (nestedError.rfind(parsePrefix, 0) != 0) {
+            return prefixMessage + " " + nestedError;
+        }
+
+        const size_t separatorIndex = nestedError.find(separator, parsePrefix.size());
+        if (separatorIndex == std::string::npos) {
+            return prefixMessage + " " + nestedError;
+        }
+
+        return nestedError.substr(0, separatorIndex + separator.size()) +
+            prefixMessage + " " +
+            nestedError.substr(separatorIndex + separator.size());
+    }
 }
 
 Parser::Parser(const std::vector<Token>& tokens)
@@ -458,15 +476,49 @@ bool Parser::parseCommandAfterSlash(
     }
 
     if (matchIdentifier("execute")) {
-        if (!expectIdentifier("store", outError)) {
-            return false;
+        if (matchIdentifier("store")) {
+            if (!expectIdentifier("result", outError)) {
+                return false;
+            }
+
+            return parseExecuteStoreResult(slashLocation, outStatement, isFunctionContext, outError);
         }
 
-        if (!expectIdentifier("result", outError)) {
-            return false;
+        if (matchIdentifier("if")) {
+            return parseExecuteConditionRun(
+                slashLocation,
+                outStatement,
+                ExecuteConditionMode::If,
+                isFunctionContext,
+                outError
+            );
         }
 
-        return parseExecuteStoreResult(slashLocation, outStatement, isFunctionContext, outError);
+        if (matchIdentifier("unless")) {
+            return parseExecuteConditionRun(
+                slashLocation,
+                outStatement,
+                ExecuteConditionMode::Unless,
+                isFunctionContext,
+                outError
+            );
+        }
+
+        if (matchIdentifier("until")) {
+            return parseExecuteConditionRun(
+                slashLocation,
+                outStatement,
+                ExecuteConditionMode::Until,
+                isFunctionContext,
+                outError
+            );
+        }
+
+        outError = makeError(
+            peek().location,
+            "Expected 'store', 'if', 'unless', or 'until' after '/execute'."
+        );
+        return false;
     }
 
     if (matchIdentifier("function")) {
@@ -486,6 +538,42 @@ bool Parser::parseCommandAfterSlash(
         auto statement = std::make_unique<Statement>();
         statement->location = slashLocation;
         statement->node = MsgStatement{ variableName };
+        outStatement = std::move(statement);
+        return true;
+    }
+
+    if (matchIdentifier("gamerule")) {
+        const SourceLocation ruleLocation = peek().location;
+
+        std::string ruleName;
+        if (!expectName(ruleName, "Expected gamerule name after '/gamerule'.", outError)) {
+            return false;
+        }
+
+        if (ruleName != "keep_inventory") {
+            outError = makeError(ruleLocation, "Unknown gamerule '" + ruleName + "'.");
+            return false;
+        }
+
+        bool ruleValue = false;
+        if (matchIdentifier("true")) {
+            ruleValue = true;
+        }
+        else if (matchIdentifier("false")) {
+            ruleValue = false;
+        }
+        else {
+            outError = makeError(peek().location, "Expected 'true' or 'false' after gamerule name.");
+            return false;
+        }
+
+        if (!consumeLineEnd(outError)) {
+            return false;
+        }
+
+        auto statement = std::make_unique<Statement>();
+        statement->location = slashLocation;
+        statement->node = GameruleStatement{ ruleName, ruleValue };
         outStatement = std::move(statement);
         return true;
     }
@@ -510,18 +598,8 @@ bool Parser::parseExecuteStoreResult(
             return false;
         }
 
-        const SourceLocation nestedSlashLocation = peek().location;
-        if (!expect(TokenKind::Slash, "Expected command after 'run'.", outError)) {
-            return false;
-        }
-
-        if (checkIdentifier("summon") && checkIdentifier("command_block", 1)) {
-            outError = makeError(peek().location, "Command blocks cannot be used after 'run'.");
-            return false;
-        }
-
         StatementPtr nestedCommand;
-        if (!parseCommandAfterSlash(nestedSlashLocation, nestedCommand, isFunctionContext, outError)) {
+        if (!parseRunCommand(nestedCommand, isFunctionContext, outError)) {
             return false;
         }
 
@@ -546,6 +624,63 @@ bool Parser::parseExecuteStoreResult(
     statement->node = ReturnStatement{ std::move(expression) };
     outStatement = std::move(statement);
     return true;
+}
+
+bool Parser::parseExecuteConditionRun(
+    const SourceLocation& slashLocation,
+    StatementPtr& outStatement,
+    ExecuteConditionMode mode,
+    bool isFunctionContext,
+    std::string& outError
+) {
+    ExprPtr condition;
+    if (!parseExpression(condition, outError)) {
+        return false;
+    }
+
+    if (!expectIdentifier("run", outError)) {
+        return false;
+    }
+
+    StatementPtr nestedCommand;
+    if (!parseRunCommand(nestedCommand, isFunctionContext, outError)) {
+        return false;
+    }
+
+    auto statement = std::make_unique<Statement>();
+    statement->location = slashLocation;
+    statement->node = ExecuteConditionStatement{ mode, std::move(condition), std::move(nestedCommand) };
+    outStatement = std::move(statement);
+    return true;
+}
+
+bool Parser::parseRunCommand(
+    StatementPtr& outStatement,
+    bool isFunctionContext,
+    std::string& outError
+) {
+    const SourceLocation nestedSlashLocation = peek().location;
+    if (!expect(TokenKind::Slash, "Expected command after 'run'.", outError)) {
+        return false;
+    }
+
+    if (checkIdentifier("summon") && checkIdentifier("command_block", 1)) {
+        outError = makeError(peek().location, "Command blocks cannot be used after 'run'.");
+        return false;
+    }
+
+    StatementPtr nestedCommand;
+    if (!parseCommandAfterSlash(nestedSlashLocation, nestedCommand, isFunctionContext, outError)) {
+        outError = makeRunCommandError(outError);
+        return false;
+    }
+
+    outStatement = std::move(nestedCommand);
+    return true;
+}
+
+std::string Parser::makeRunCommandError(const std::string& nestedError) const {
+    return prefixNestedParseError(nestedError, "Invalid command after 'run'.");
 }
 
 bool Parser::parseFunctionCallStatement(
@@ -619,7 +754,75 @@ bool Parser::parseFunctionCallStatement(
 }
 
 bool Parser::parseExpression(ExprPtr& outExpression, std::string& outError) {
-    return parseAddSub(outExpression, outError);
+    return parseEquality(outExpression, outError);
+}
+
+bool Parser::parseEquality(ExprPtr& outExpression, std::string& outError) {
+    if (!parseComparison(outExpression, outError)) {
+        return false;
+    }
+
+    while (true) {
+        BinaryOp op;
+        if (match(TokenKind::EqualEqual)) {
+            op = BinaryOp::Equal;
+        }
+        else if (match(TokenKind::BangEqual)) {
+            op = BinaryOp::NotEqual;
+        }
+        else {
+            break;
+        }
+
+        ExprPtr right;
+        if (!parseComparison(right, outError)) {
+            return false;
+        }
+
+        auto expression = std::make_unique<Expr>();
+        expression->location = outExpression->location;
+        expression->node = BinaryExpr{ op, std::move(outExpression), std::move(right) };
+        outExpression = std::move(expression);
+    }
+
+    return true;
+}
+
+bool Parser::parseComparison(ExprPtr& outExpression, std::string& outError) {
+    if (!parseAddSub(outExpression, outError)) {
+        return false;
+    }
+
+    while (true) {
+        BinaryOp op;
+        if (match(TokenKind::Less)) {
+            op = BinaryOp::Less;
+        }
+        else if (match(TokenKind::LessEqual)) {
+            op = BinaryOp::LessEqual;
+        }
+        else if (match(TokenKind::Greater)) {
+            op = BinaryOp::Greater;
+        }
+        else if (match(TokenKind::GreaterEqual)) {
+            op = BinaryOp::GreaterEqual;
+        }
+        else {
+            break;
+        }
+
+        ExprPtr right;
+        if (!parseAddSub(right, outError)) {
+            return false;
+        }
+
+        auto expression = std::make_unique<Expr>();
+        expression->location = outExpression->location;
+        expression->node = BinaryExpr{ op, std::move(outExpression), std::move(right) };
+        outExpression = std::move(expression);
+    }
+
+    return true;
 }
 
 bool Parser::parseAddSub(ExprPtr& outExpression, std::string& outError) {

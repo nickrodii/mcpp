@@ -55,6 +55,10 @@ namespace {
         return std::get_if<StoreResultStatement>(&statement.node);
     }
 
+    const ExecuteConditionStatement* asExecuteCondition(const Statement& statement) {
+        return std::get_if<ExecuteConditionStatement>(&statement.node);
+    }
+
     const ReturnStatement* asReturn(const Statement& statement) {
         return std::get_if<ReturnStatement>(&statement.node);
     }
@@ -65,6 +69,10 @@ namespace {
 
     const MsgStatement* asMsg(const Statement& statement) {
         return std::get_if<MsgStatement>(&statement.node);
+    }
+
+    const GameruleStatement* asGamerule(const Statement& statement) {
+        return std::get_if<GameruleStatement>(&statement.node);
     }
 }
 
@@ -158,6 +166,7 @@ void Interpreter::resetState() {
     globals.clear();
     functionStorage.clear();
     functionTable.clear();
+    keepInventoryEnabled = false;
     stopRequestedFlag = false;
 }
 
@@ -256,6 +265,60 @@ bool Interpreter::tryGetInt(const Value& value, int& out) {
     return true;
 }
 
+bool Interpreter::tryGetBool(const Value& value, bool& out) {
+    switch (value.type) {
+    case Value::Type::Bool:
+        out = value.boolValue;
+        return true;
+    case Value::Type::Int:
+        out = value.intValue != 0;
+        return true;
+    case Value::Type::String: {
+        if (value.stringValue.empty()) {
+            out = false;
+            return true;
+        }
+
+        if (value.stringValue == "true") {
+            out = true;
+            return true;
+        }
+
+        if (value.stringValue == "false") {
+            out = false;
+            return true;
+        }
+
+        int numericValue = 0;
+        if (tryGetInt(value, numericValue)) {
+            out = numericValue != 0;
+            return true;
+        }
+
+        out = true;
+        return true;
+    }
+    case Value::Type::None:
+    default:
+        out = false;
+        return true;
+    }
+}
+
+bool Interpreter::valuesEqual(const Value& left, const Value& right) {
+    int leftNumber = 0;
+    int rightNumber = 0;
+    if (tryGetInt(left, leftNumber) && tryGetInt(right, rightNumber)) {
+        return leftNumber == rightNumber;
+    }
+
+    if (left.type == Value::Type::None || right.type == Value::Type::None) {
+        return left.type == right.type;
+    }
+
+    return left.toString() == right.toString();
+}
+
 std::string Interpreter::makeRuntimeError(const SourceLocation& location, const std::string& message) {
     return "Runtime error at " + formatLocation(location) + ": " + message;
 }
@@ -336,14 +399,19 @@ bool Interpreter::evaluateExpression(
 
     case BinaryOp::Subtract:
     case BinaryOp::Multiply:
-    case BinaryOp::Divide: {
+    case BinaryOp::Divide:
+    case BinaryOp::Less:
+    case BinaryOp::LessEqual:
+    case BinaryOp::Greater:
+    case BinaryOp::GreaterEqual: {
         int leftNumber = 0;
         int rightNumber = 0;
         if (!tryGetInt(leftValue, leftNumber) || !tryGetInt(rightValue, rightNumber)) {
             const std::string opName =
                 binary->op == BinaryOp::Subtract ? "Subtraction" :
                 binary->op == BinaryOp::Multiply ? "Multiplication" :
-                "Division";
+                binary->op == BinaryOp::Divide ? "Division" :
+                "Comparison";
 
             outError = makeRuntimeError(expression.location, opName + " requires numeric values.");
             return false;
@@ -359,14 +427,40 @@ bool Interpreter::evaluateExpression(
             return true;
         }
 
-        if (rightNumber == 0) {
+        if (binary->op == BinaryOp::Divide && rightNumber == 0) {
             outError = makeRuntimeError(expression.location, "Division by zero.");
             return false;
         }
 
-        outValue = Value::makeInt(leftNumber / rightNumber);
+        if (binary->op == BinaryOp::Divide) {
+            outValue = Value::makeInt(leftNumber / rightNumber);
+            return true;
+        }
+
+        if (binary->op == BinaryOp::Less) {
+            outValue = Value::makeBool(leftNumber < rightNumber);
+            return true;
+        }
+
+        if (binary->op == BinaryOp::LessEqual) {
+            outValue = Value::makeBool(leftNumber <= rightNumber);
+            return true;
+        }
+
+        if (binary->op == BinaryOp::Greater) {
+            outValue = Value::makeBool(leftNumber > rightNumber);
+            return true;
+        }
+
+        outValue = Value::makeBool(leftNumber >= rightNumber);
         return true;
     }
+    case BinaryOp::Equal:
+        outValue = Value::makeBool(valuesEqual(leftValue, rightValue));
+        return true;
+    case BinaryOp::NotEqual:
+        outValue = Value::makeBool(!valuesEqual(leftValue, rightValue));
+        return true;
     default:
         break;
     }
@@ -381,7 +475,7 @@ bool Interpreter::executeStatements(
     bool& shouldStop,
     Value& lastResult,
     bool isFunctionContext
-) const {
+) {
     for (const StatementPtr& statement : statements) {
         if (statement == nullptr) {
             continue;
@@ -399,15 +493,34 @@ bool Interpreter::executeStatements(
     return true;
 }
 
+bool Interpreter::executeScopedStatements(
+    const std::vector<StatementPtr>& statements,
+    std::unordered_map<std::string, Value>& scope,
+    bool& shouldStop,
+    Value& lastResult,
+    bool isFunctionContext
+) {
+    std::unordered_map<std::string, Value> localScope = scope;
+    if (!executeStatements(statements, localScope, shouldStop, lastResult, isFunctionContext)) {
+        return false;
+    }
+
+    if (keepInventoryEnabled) {
+        scope = std::move(localScope);
+    }
+
+    return true;
+}
+
 bool Interpreter::executeStatement(
     const Statement& statement,
     std::unordered_map<std::string, Value>& scope,
     bool& shouldStop,
     Value& lastResult,
     bool isFunctionContext
-) const {
-    if (asBlock(statement) != nullptr) {
-        return true;
+) {
+    if (const BlockStatement* block = asBlock(statement)) {
+        return executeScopedStatements(block->statements, scope, shouldStop, lastResult, isFunctionContext);
     }
 
     if (asStop(statement) != nullptr) {
@@ -453,6 +566,52 @@ bool Interpreter::executeStatement(
         return true;
     }
 
+    if (const ExecuteConditionStatement* executeCondition = asExecuteCondition(statement)) {
+        auto shouldRunCommand = [&](bool conditionValue) {
+            switch (executeCondition->mode) {
+            case ExecuteConditionMode::If:
+                return conditionValue;
+            case ExecuteConditionMode::Unless:
+                return !conditionValue;
+            case ExecuteConditionMode::Until:
+            default:
+                return !conditionValue;
+            }
+        };
+
+        lastResult = Value::makeInt(0);
+
+        while (true) {
+            Value conditionValue;
+            std::string error;
+            if (!evaluateExpression(*executeCondition->condition, scope, conditionValue, error)) {
+                std::cerr << error << '\n';
+                return false;
+            }
+
+            bool conditionAsBool = false;
+            if (!tryGetBool(conditionValue, conditionAsBool)) {
+                std::cerr << makeRuntimeError(statement.location, "Condition could not be evaluated as a boolean.") << '\n';
+                return false;
+            }
+
+            if (!shouldRunCommand(conditionAsBool)) {
+                return true;
+            }
+
+            Value nestedResult = Value::makeInt(0);
+            if (!executeStatement(*executeCondition->command, scope, shouldStop, nestedResult, isFunctionContext)) {
+                return false;
+            }
+
+            lastResult = nestedResult;
+
+            if (shouldStop || executeCondition->mode != ExecuteConditionMode::Until) {
+                return true;
+            }
+        }
+    }
+
     if (const ReturnStatement* returnStatement = asReturn(statement)) {
         if (!isFunctionContext) {
             std::cerr << makeRuntimeError(
@@ -488,7 +647,7 @@ bool Interpreter::executeStatement(
         }
 
         Value result = Value::makeInt(0);
-        if (!callFunction(statement.location, call->name, namedArgs, result, shouldStop)) {
+        if (!callFunction(statement.location, call->name, namedArgs, scope, result, shouldStop)) {
             return false;
         }
 
@@ -504,6 +663,17 @@ bool Interpreter::executeStatement(
         return true;
     }
 
+    if (const GameruleStatement* gamerule = asGamerule(statement)) {
+        if (gamerule->name == "keep_inventory") {
+            keepInventoryEnabled = gamerule->value;
+            lastResult = Value::makeBool(keepInventoryEnabled);
+            return true;
+        }
+
+        std::cerr << makeRuntimeError(statement.location, "Unknown gamerule '" + gamerule->name + "'.") << '\n';
+        return false;
+    }
+
     std::cerr << makeRuntimeError(statement.location, "Unsupported statement node.") << '\n';
     return false;
 }
@@ -512,9 +682,10 @@ bool Interpreter::callFunction(
     const SourceLocation& callLocation,
     const std::string& name,
     const std::unordered_map<std::string, Value>& namedArgs,
+    std::unordered_map<std::string, Value>& callerScope,
     Value& outResult,
     bool& shouldStop
-) const {
+) {
     const auto it = functionTable.find(name);
     if (it == functionTable.end()) {
         std::cerr << makeRuntimeError(callLocation, "Function '" + name + "' was not found.") << '\n';
@@ -541,7 +712,7 @@ bool Interpreter::callFunction(
         }
     }
 
-    std::unordered_map<std::string, Value> localScope;
+    std::unordered_map<std::string, Value> localScope = callerScope;
     for (const std::string& parameter : function.parameters) {
         const auto argIt = namedArgs.find(parameter);
         if (argIt != namedArgs.end()) {
@@ -553,5 +724,13 @@ bool Interpreter::callFunction(
     }
 
     outResult = Value::makeInt(0);
-    return executeStatements(function.body, localScope, shouldStop, outResult, true);
+    if (!executeStatements(function.body, localScope, shouldStop, outResult, true)) {
+        return false;
+    }
+
+    if (keepInventoryEnabled) {
+        callerScope = std::move(localScope);
+    }
+
+    return true;
 }

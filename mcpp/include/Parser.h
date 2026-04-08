@@ -63,6 +63,19 @@ private:
         bool isFunctionContext,
         std::string& outError
     );
+    bool parseExecuteConditionRun(
+        const SourceLocation& slashLocation,
+        StatementPtr& outStatement,
+        ExecuteConditionMode mode,
+        bool isFunctionContext,
+        std::string& outError
+    );
+    bool parseRunCommand(
+        StatementPtr& outStatement,
+        bool isFunctionContext,
+        std::string& outError
+    );
+    std::string makeRunCommandError(const std::string& nestedError) const;
     bool parseFunctionCallStatement(
         const SourceLocation& slashLocation,
         StatementPtr& outStatement,
@@ -70,6 +83,8 @@ private:
     );
 
     bool parseExpression(ExprPtr& outExpression, std::string& outError);
+    bool parseEquality(ExprPtr& outExpression, std::string& outError);
+    bool parseComparison(ExprPtr& outExpression, std::string& outError);
     bool parseAddSub(ExprPtr& outExpression, std::string& outError);
     bool parseMulDiv(ExprPtr& outExpression, std::string& outError);
     bool parseUnary(ExprPtr& outExpression, std::string& outError);

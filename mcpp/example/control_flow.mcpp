@@ -1,0 +1,12 @@
+/say "execute control flow"
+
+/give x 7
+/give counter 0
+
+/execute if x == 7 run /say "x is exactly 7"
+/execute unless x == 3 run /say "x is not 3"
+/execute until counter >= 5 run /give counter counter + 1
+
+/say "counter reached " + counter
+
+/stop

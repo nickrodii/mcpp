@@ -44,9 +44,12 @@ private:
     std::unordered_map<std::string, Value> globals;
     std::vector<std::unique_ptr<FunctionDefinition>> functionStorage;
     std::unordered_map<std::string, const FunctionDefinition*> functionTable;
+    bool keepInventoryEnabled = false;
     bool stopRequestedFlag = false;
 
     static bool tryGetInt(const Value& value, int& out);
+    static bool tryGetBool(const Value& value, bool& out);
+    static bool valuesEqual(const Value& left, const Value& right);
     static std::string makeRuntimeError(const SourceLocation& location, const std::string& message);
 
     bool parseSource(const std::string& source, Program& outProgram) const;
@@ -66,7 +69,14 @@ private:
         bool& shouldStop,
         Value& lastResult,
         bool isFunctionContext
-    ) const;
+    );
+    bool executeScopedStatements(
+        const std::vector<StatementPtr>& statements,
+        std::unordered_map<std::string, Value>& scope,
+        bool& shouldStop,
+        Value& lastResult,
+        bool isFunctionContext
+    );
 
     bool executeStatement(
         const Statement& statement,
@@ -74,13 +84,14 @@ private:
         bool& shouldStop,
         Value& lastResult,
         bool isFunctionContext
-    ) const;
+    );
 
     bool callFunction(
         const SourceLocation& callLocation,
         const std::string& name,
         const std::unordered_map<std::string, Value>& namedArgs,
+        std::unordered_map<std::string, Value>& callerScope,
         Value& outResult,
         bool& shouldStop
-    ) const;
+    );
 };

@@ -101,6 +101,46 @@ bool Lexer::tokenize(std::vector<Token>& outTokens, std::string& outError) const
             index++;
             column++;
             continue;
+        case '=':
+            if (index + 1 < sourceText.size() && sourceText[index + 1] == '=') {
+                outTokens.push_back(Token{ TokenKind::EqualEqual, "==", location });
+                index += 2;
+                column += 2;
+                continue;
+            }
+            break;
+        case '!':
+            if (index + 1 < sourceText.size() && sourceText[index + 1] == '=') {
+                outTokens.push_back(Token{ TokenKind::BangEqual, "!=", location });
+                index += 2;
+                column += 2;
+                continue;
+            }
+            break;
+        case '<':
+            if (index + 1 < sourceText.size() && sourceText[index + 1] == '=') {
+                outTokens.push_back(Token{ TokenKind::LessEqual, "<=", location });
+                index += 2;
+                column += 2;
+            }
+            else {
+                outTokens.push_back(Token{ TokenKind::Less, "<", location });
+                index++;
+                column++;
+            }
+            continue;
+        case '>':
+            if (index + 1 < sourceText.size() && sourceText[index + 1] == '=') {
+                outTokens.push_back(Token{ TokenKind::GreaterEqual, ">=", location });
+                index += 2;
+                column += 2;
+            }
+            else {
+                outTokens.push_back(Token{ TokenKind::Greater, ">", location });
+                index++;
+                column++;
+            }
+            continue;
         default:
             break;
         }
